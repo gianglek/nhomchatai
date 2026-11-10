@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<HTML lang=vi>
+<HEAD>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<TITLE>Nhóm chat AI (Gemini, Groq)</TITLE>
+<style>
+  /* ==========================================================
+     BẢNG MÀU & BIẾN CHUNG
+     Đổi màu ở đây là đổi cả giao diện, không cần sửa chỗ khác
+     ========================================================== */
+  :root {
+    --bg: #e9edf1;        /* nền toàn trang */
+    --panel: #fff;        /* nền các khung (header, bong bóng chat, ô nhập) */
+    --ink: #18212b;       /* màu chữ chính */
+    --mute: #6a7683;      /* chữ phụ, mờ hơn */
+    --line: #d5dce3;      /* viền mảnh */
+    --you: #18212b;       /* màu của bạn */
+    --gemini: #1a6fd8;    /* màu Gemini (xanh dương) */
+    --groq: #d2500f;      /* màu Groq (cam) */
+    --shadow: 0 1px 2px rgba(24, 33, 43, .06), 0 4px 12px rgba(24, 33, 43, .05);
+  }
+
+  /* ===== RESET & KHUNG TRANG ===== */
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;            /* header trên, chat giữa, ô nhập dưới */
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.55 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  }
+
+  /* Form control thừa hưởng font của trang cho đồng nhất */
+  button, select, input, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  button[hidden] { display: none; }
+
+  /* Viền focus rõ ràng cho người dùng bàn phím */
+  button:focus-visible, textarea:focus-visible,
+  input:focus-visible, select:focus-visible {
+    outline: 2px solid var(--gemini);
+    outline-offset: 2px;
+  }
+
+  /* ===== HEADER ===== */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 18px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 17px; margin: 0; flex: 1; letter-spacing: .2px; }
+
+  /* Nút viền mảnh dùng ở header */
+  .ghost {
+    background: none;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px 12px;
+    transition: background .15s ease;
+  }
+  .ghost:hover { background: var(--bg); }
+
+  /* ===== BẢNG CÀI ĐẶT API (ẩn mặc định, bấm "Cài đặt API" để mở) ===== */
+  #settings {
+    display: none;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    padding: 14px 18px;
+  }
+  #settings.open {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  }
+  .cfg {                                   /* mỗi dịch vụ một cột, có vạch màu bên trái */
+    display: grid;
+    gap: 6px;
+    border-left: 4px solid var(--c);
+    padding-left: 10px;
+  }
+  .cfg b { color: var(--c); }
+  .cfg input {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 8px;
+  }
+  #settings p { grid-column: 1 / -1; margin: 0; color: var(--mute); font-size: 13px; }
+
+  /* ===== KHUNG CHAT ===== */
+  #log {
+    flex: 1;                               /* chiếm hết chỗ còn lại, tự cuộn */
+    overflow-y: auto;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  /* Một tin nhắn = tên người nói + bong bóng */
+  .msg { max-width: min(720px, 88%); display: grid; gap: 2px; }
+  .msg .who { font-size: 13px; font-weight: 600; color: var(--c); }
+  .msg .body {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--c);       /* vạch màu theo từng AI */
+    border-radius: 10px;
+    padding: 8px 12px;
+    white-space: pre-wrap;                 /* giữ xuống dòng trong câu trả lời */
+    overflow-wrap: anywhere;
+    box-shadow: var(--shadow);
+  }
+
+  /* Tin của bạn: nằm bên phải, nền tối */
+  .msg.you { align-self: flex-end; --c: var(--you); }
+  .msg.you .body { background: var(--you); color: #fff; border-color: var(--you); }
+
+  /* Trạng thái lỗi / đang chờ */
+  .msg.err .body { color: #b3261e; border-left-color: #b3261e; }
+  .msg.wait .body { color: var(--mute); font-style: italic; }
+
+  /* Ảnh trong bong bóng chat */
+  .pic { display: block; max-width: 240px; max-height: 200px; border-radius: 8px; margin-top: 6px; }
+
+  /* Dòng ghi chú nhỏ ở giữa khung chat */
+  .note {
+    align-self: center;
+    color: var(--mute);
+    font-size: 13px;
+    background: var(--panel);
+    border: 1px dashed var(--line);
+    border-radius: 999px;
+    padding: 2px 14px;
+  }
+
+  /* Hướng dẫn hiện khi chưa có tin nhắn nào */
+  .empty { margin: auto; text-align: center; color: var(--mute); max-width: 460px; }
+
+  /* ===== KHU NHẬP TIN (CHÂN TRANG) ===== */
+  footer {
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+    padding: 10px 18px;
+    display: grid;
+    gap: 8px;
+  }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .row label { margin-left: auto; font-size: 13px; color: var(--mute); }
+  select {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 3px 6px;
+    background: var(--panel);
+  }
+
+  /* Nút @all / @gemini / @groq dạng viên thuốc */
+  .chip {
+    border: 1px solid var(--c);
+    color: var(--c);
+    background: none;
+    border-radius: 999px;
+    padding: 2px 12px;
+    font-size: 13px;
+    transition: background .15s ease, color .15s ease;
+  }
+  .chip:hover { background: var(--c); color: #fff; }
+
+  /* Ảnh nhỏ xem trước khi dán */
+  #thumbs { display: flex; gap: 8px; flex-wrap: wrap; }
+  #thumbs:empty { display: none; }
+  .th { position: relative; }
+  .th img { height: 60px; border-radius: 6px; border: 1px solid var(--line); display: block; }
+  .th button {                              /* nút × bỏ ảnh */
+    position: absolute; top: -6px; right: -6px;
+    width: 20px; height: 20px;
+    border-radius: 50%; border: 0; padding: 0;
+    background: var(--ink); color: #fff;
+    font-size: 12px; line-height: 20px;
+  }
+
+  /* Ô nhập + cụm nút */
+  .send { display: flex; gap: 8px; align-items: stretch; }
+  textarea {
+    flex: 1;
+    resize: none;
+    min-height: 44px;
+    max-height: 160px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 9px 12px;
+  }
+  .btns { display: flex; gap: 6px; flex-wrap: wrap; align-content: flex-start; width: 200px; }
+  .btns button {
+    flex: 1 1 auto;
+    border: 1px solid var(--ink);
+    border-radius: 10px;
+    padding: 8px 12px;
+  }
+  #go   { background: var(--ink);   color: #fff; }                         /* Gửi / Chen ý kiến */
+  #dis  { background: var(--panel); color: var(--gemini); border-color: var(--gemini); }  /* Thảo luận */
+  #stop { background: var(--panel); color: #b3261e; border-color: #b3261e; flex-basis: 100%; }  /* Dừng */
+  .btns button:disabled { opacity: .5; cursor: default; }
+
+  /* ===== MÀN HÌNH NHỎ (ĐIỆN THOẠI) ===== */
+  @media (max-width: 560px) {
+    .btns { width: 112px; }
+  }
+</style>
+</HEAD>
+<BODY>
+<!-- <div id="oldHeader"><h2>Chat AI v0.1</h2></div> -->
+<header>
+  <h1>Nhóm chat AI</h1>
+  <!-- <button class="ghost" id="test">test</button> -->
+  <button class="ghost" id=clear onclick="xoaChat()">Xóa chat</button>
+  <button class="ghost" id=gear aria-expanded=false onclick="moCaiDat()">Cài đặt API</button>
+</header>
+
+<section id=settings>
+  <DIV class=cfg style="--c:var(--gemini)"><B>Gemini</B>
+    <input id=k-gemini type=password placeholder="API key (aistudio.google.com)" autocomplete=off>
+    <input id=m-gemini placeholder="Tên model"></DIV>
+  <DIV class=cfg style="--c:var(--groq)"><B>Groq</B>
+    <input id=k-groq type=password placeholder="API key (console.groq.com)" autocomplete=off>
+    <input id=m-groq placeholder="Tên model chữ">
+    <input id=mv-groq placeholder="Tên model xem được ảnh"></DIV>
+  <p>Key và tên model chỉ lưu trong trình duyệt của bạn (localStorage) và được gửi thẳng tới từng dịch vụ. Khi tin nhắn có ảnh (Groq chỉ nhận 2 ảnh gần nhất), Groq sẽ tự đổi sang "model xem được ảnh" (model chữ như Llama 8b không đọc được ảnh). Danh sách model hay thay đổi: nếu báo lỗi model, hãy xem tên model hiện có trên trang của dịch vụ. Đừng chia sẻ file này khi đã nhập key.</p>
+</section>
+
+<span id=tmp></span>
+<div id=debugbox style="display:none"></div>
+
+<main id=log aria-live=polite>
+  <DIV class=empty id=empty>
+    <b>Gửi</b>: mỗi bạn trả lời bạn một lượt (dùng <b>@gemini</b>, <b>@groq</b> để gọi riêng, không gõ thì cả hai).<br>
+    <B>Thảo luận</B>: hai bạn tự nói chuyện với nhau về chủ đề của bạn. Bạn gõ ý kiến rồi bấm <b>Chen ý kiến</b> bất cứ lúc nào, hai bạn sẽ dừng, đọc, trả lời bạn rồi thảo luận tiếp.<BR>
+    Dán ảnh: copy ảnh rồi <b>Ctrl+V</b> (Mac: Cmd+V) vào ô chat.
+  </DIV>
+</main>
+
+<footer>
+  <div class=row>
+    <button class=chip style="--c:var(--you)" onclick="themTag('@all')">@all</button>
+    <button class=chip style="--c:var(--gemini)" onclick="themTag('@gemini')">@gemini</button>
+    <button class=chip style="--c:var(--groq)" onclick="themTag('@groq')">@groq</button>
+    <label>Tối đa lượt tự thảo luận
+      <select id=maxturns><option>6</option><option selected>10</option><option>20</option></select></label>
+  </div>
+  <div id=thumbs></div>
+  <div class=send>
+    <TEXTAREA id=box rows=1 placeholder="Nhập tin nhắn hoặc dán ảnh (Ctrl+V)... Enter để gửi, Shift+Enter xuống dòng"></TEXTAREA>
+    <div class=btns>
+      <button id=go onclick="clickGui()">Gửi</button>
+      <button id=dis onclick="clickThaoLuan()">Thảo luận</button>
+      <button id=stop onclick="clickDung()" hidden>Dừng</button>
+    </div>
+  </div>
+</footer>
+
+<script language="javascript">
+// ---------- code chat ai v0.3b ----------
+// TODO: dep code lai sau (chua co thoi gian)
+var DEBUG = false      // bat len de xem log, dung bat spam lam
+var ver = "0.3b"
+var tmp, tmp2, abc     // chua dung toi, de do
+var MAX_IMG = 5        // groq noi toi da 5 anh (code ben duoi xai so khac, ke di)
+var soTin = 0, lastWho = "", dem = 0
+
+//console.log("1");
+//console.log("here 2");
+//alert("debug!!!");
+//console.log(ver);
+
+var AIS = {
+  gemini: {name:"Gemini", model:"gemini-2.5-flash", color:"var(--gemini)"},
+  groq:   {name:"Groq",   model:"llama-3.1-8b-instant", vision:"qwen/qwen3.6-27b",
+           color:"var(--groq)", url:"https://api.groq.com/openai/v1/chat/completions"}
+};
+var IDS = Object.keys(AIS), IDS2 = ["gemini","groq"]   // IDS2 bo roi, ko xoa vi so
+function $(id){return document.getElementById(id)}
+
+var store = {
+  get: function(k){ try{ return localStorage.getItem(k) || "" }catch(e){ return "" } },
+  set: function(k,v){ try{ localStorage.setItem(k,v) }catch(e){} }
+};
+
+var HIST = [];          // lich su chat {who, text, imgs}
+var mode = null;        // null | "round" | "discuss"
+var chen = null;        // y kien chen ngang dang cho
+var anhCho = [];        // anh da dan chua gui
+var ctrls = [];         // cac request dang chay
+
+// ---- ham cu (bi ghi de boi ham o duoi, XOA SAU) ----
+function getKey(id){ return store.get("key_"+id) }      // sai ten key!!
+function scrollDown(){ $("log").scrollTop = 0 }          // bug: keo len dau
+function get_key(id){ return store.get("key-"+id); }    // ban cu, ko ai goi
+
+function getKey(id){ return store.get("key-"+id) }
+function scrollDown(){ $("log").scrollTop = $("log").scrollHeight }
+
+// ---------- junk khong lien quan ----------
+function tinhTuoi(namSinh){ return 2014 - namSinh }
+function randomMau(){ return "#" + Math.floor(Math.random()*16777215).toString(16) }
+function gioHienTai(){ var d = new Date(); return d.getHours() + ":" + d.getMinutes() + ":" + d.getSeconds() + 1 }
+function chao(){ if (1 == 1) { return "xin chao" } else { return "tam biet" } }
+var danhSachBanBe = ["Nam", "Hung", "Lan"]
+function capNhatSoTin(){ $("tmp").innerHTML = soTin; $("tmp").style.color = randomMau() }  // ko goi
+function khoiTao(){
+  abc = 123; tmp = []; tmp2 = null
+  if (DEBUG) console.log("khoi tao xong", ver, chao())
+}
+khoiTao()
+window.onload = function(){ if (DEBUG) { console.log("loaded") } }
+var _t = setTimeout(function(){ if (DEBUG) console.log("ready") }, 500)
+
+// ---------- cai dat ----------
+for (var i = 0; i < IDS.length; i++){
+  var id = IDS[i]
+  $("k-"+id).value = store.get("key-"+id)
+  $("m-"+id).value = store.get("model-"+id) || AIS[id].model
+  $("k-"+id).oninput = function(){ store.set("key-"+this.id.substring(2), this.value.trim()) }
+  $("m-"+id).oninput = function(){ store.set("model-"+this.id.substring(2), this.value.trim()) }
+}
+$("mv-groq").value = store.get("modelv-groq") || AIS.groq.vision
+$("mv-groq").oninput = function(){ store.set("modelv-groq", this.value.trim()) }
+
+function moCaiDat(){
+  var open = $("settings").classList.toggle("open")
+  $("gear").setAttribute("aria-expanded", open)
+}
+$("gear").onclick = moCaiDat
+$("gear").onclick = moCaiDat   // gan 2 lan cho chac
+
+function xoaChat(){
+  if (mode) return
+  HIST = []; anhCho = []; renderThumbs(); soTin = 0
+  var e = $("empty")
+  $("log").innerHTML = ""
+  $("log").appendChild(e); e.style.display = ""
+}
+$("clear").onclick = xoaChat
+
+// ---------- tao noi dung gui di ----------
+// ham cu: gui 1 phat ca lich su bang XHR dong bo, loi 400 khi co anh -> bo
+function askOld(id){
+  var xhr = new XMLHttpRequest()
+  xhr.open("POST", AIS[id].url || "", false)   // sync xhr cam dung!!!
+  xhr.setRequestHeader("content-type", "application/json")
+  xhr.send(JSON.stringify({model: AIS[id].model, messages: HIST}))
+  return xhr.responseText
+}
+
+function sysPrompt(id, kind){
+  var other = ""
+  for (var i = 0; i < IDS.length; i++){ if (IDS[i] != id) other = other + (other ? " và " : "") + AIS[IDS[i]].name }
+  var s = "Bạn là " + AIS[id].name + ", đang ở trong một nhóm chat có Bạn (người dùng) và " + other + ". " +
+    "Trả lời bằng ngôn ngữ người dùng đang dùng, ngắn gọn, tự nhiên. " +
+    "Không viết thay lời người khác và không thêm tiền tố tên của bạn."
+  if (kind == "discuss") s += " Hiện đang ở chế độ thảo luận giữa bạn và " + other + " về chủ đề của Bạn. " +
+    "Hãy đáp lại ý mới nhất của " + other + ": đồng ý, phản biện hoặc thêm một ý mới, tối đa 3-4 câu, tránh lặp lại điều đã nói. " +
+    "Nếu Bạn đã nêu ý kiến thì phải tính đến ý kiến đó."
+  if (kind == "chen") s += " Bạn (người dùng) vừa chen vào cuộc thảo luận. " +
+    "Hãy đọc kỹ tin nhắn mới nhất của Bạn và trả lời trực tiếp, ngắn gọn. Sau đó cuộc thảo luận sẽ tiếp tục."
+  return s
+}
+
+function buildParts(id){
+  var label = function(w){ return w == "you" ? "Bạn" : AIS[w].name }
+  var cap = (id == "groq") ? 2 : 4        // groq ton ~2000 token / anh nen chi gui 2 anh gan nhat
+  var cap2 = cap * 2048                   // so token (ko dung)
+  var all = []
+  for (var i = 0; i < HIST.length; i++){ for (var j = 0; j < HIST[i].imgs.length; j++){ all.push(HIST[i].imgs[j]) } }
+  var keep = all.slice(-cap)
+  var parts = []
+  for (var i = 0; i < HIST.length; i++){
+    var m = HIST[i]
+    parts.push({t: "[" + label(m.who) + "]: " + (m.text || "(gửi kèm ảnh)")})
+    for (var j = 0; j < m.imgs.length; j++){
+      if (keep.indexOf(m.imgs[j]) > -1) parts.push({img: m.imgs[j]})
+    }
+  }
+  parts.push({t: "(Đến lượt " + AIS[id].name + " trả lời.)"})
+  return parts
+}
+
+// ---------- goi API ----------
+async function ask(id, kind, signal){
+  var key = getKey(id)
+  if (!key) throw new Error("Chưa nhập API key cho " + AIS[id].name + " (mở Cài đặt API).")
+  var parts = buildParts(id), hasImg = false, sys = sysPrompt(id, kind)
+  for (var i = 0; i < parts.length; i++){ if (parts[i].img) hasImg = true }
+  var res, data
+  if (id == "gemini"){
+    var model = store.get("model-gemini") || AIS.gemini.model
+    var gp = []
+    for (var i = 0; i < parts.length; i++){
+      gp.push(parts[i].t ? {text: parts[i].t} : {inlineData: {mimeType: "image/jpeg", data: parts[i].img.split(",")[1]}})
+    }
+    res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent", {
+      method: "POST", signal: signal,
+      headers: {"content-type": "application/json", "x-goog-api-key": key},
+      body: JSON.stringify({
+        systemInstruction: {parts: [{text: sys}]},
+        contents: [{role: "user", parts: gp}]
+      })
+    })
+    data = await res.json()
+    if (!res.ok) throw new Error((data.error && data.error.message) || res.status)
+    var cand = data.candidates && data.candidates[0]
+    var ps = (cand && cand.content && cand.content.parts) || []
+    var out = ""
+    for (var i = 0; i < ps.length; i++){ out += ps[i].text || "" }
+    return out || "(Gemini không trả về nội dung)"
+  }
+  // groq (dinh dang openai)
+  var model = hasImg ? (store.get("modelv-"+id) || AIS[id].vision) : (store.get("model-"+id) || AIS[id].model)
+  var content
+  if (hasImg){
+    content = []
+    for (var i = 0; i < parts.length; i++){
+      content.push(parts[i].t ? {type: "text", text: parts[i].t} : {type: "image_url", image_url: {url: parts[i].img}})
+    }
+  } else {
+    var arr = []
+    for (var i = 0; i < parts.length; i++){ arr.push(parts[i].t) }
+    content = arr.join("\n\n")
+  }
+  res = await fetch(AIS[id].url, {
+    method: "POST", signal: signal,
+    headers: {"content-type": "application/json", "authorization": "Bearer " + key},
+    body: JSON.stringify({model: model, messages: [{role: "system", content: sys}, {role: "user", content: content}]})
+  })
+  data = await res.json()
+  if (!res.ok) throw new Error((data.error && data.error.message) || res.status)
+  return data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || "(không có nội dung trả về)"
+}
+
+// ---------- giao dien tin nhan ----------
+function bubble(who, text, cls, imgs){
+  cls = cls || ""; imgs = imgs || []
+  $("empty").style.display = "none"
+  $("empty").style.display = "none"     // goi 2 lan cho chac
+  var el = document.createElement("div")
+  el.className = "msg " + (who == "you" ? "you " : "") + cls
+  if (who != "you") el.style.setProperty("--c", AIS[who].color)
+  var w = document.createElement("div"); w.className = "who"; w.textContent = who == "you" ? "Bạn" : AIS[who].name
+  var b = document.createElement("div"); b.className = "body"
+  if (text) b.appendChild(document.createTextNode(text))
+  for (var i = 0; i < imgs.length; i++){
+    var im = document.createElement("img"); im.className = "pic"; im.src = imgs[i]; b.appendChild(im)
+  }
+  el.appendChild(w); el.appendChild(b)
+  $("log").appendChild(el); scrollDown()
+  lastWho = who
+  return el
+}
+function note(text){
+  $("empty").style.display = "none"
+  var n = document.createElement("div"); n.className = "note"; n.textContent = text
+  $("log").appendChild(n); scrollDown()
+}
+function addUser(u){
+  HIST.push({who: "you", text: u.text, imgs: u.imgs})
+  soTin = soTin + 1; dem = dem + 1; dem = dem - 1     // dem sai nhung ko hien o dau
+  bubble("you", u.text, "", u.imgs)
+}
+function ui(){
+  $("go").textContent = mode == "discuss" ? "Chen ý kiến" : "Gửi"
+  $("go").disabled = mode == "round"
+  $("dis").disabled = mode != null
+  $("stop").hidden = mode == null
+}
+
+// ---------- 1 luot tra loi cua 1 AI ----------
+async function turn(id, kind){
+  var el = bubble(id, "đang trả lời…", "wait")
+  var c = new AbortController(); ctrls.push(c)
+  try{
+    var text = await ask(id, kind, c.signal)
+    text = text.replace(/<think>[\s\S]*?<\/think>/g, "").trim().replace(/^\[[^\]]{1,20}\]:\s*/, "")
+    HIST.push({who: id, text: text, imgs: []})
+    el.className = "msg"; el.querySelector(".body").textContent = text
+    return "ok"
+  }catch(e){
+    if (e.name == "AbortError"){ el.remove(); return "abort" }
+    el.className = "msg err"; el.querySelector(".body").textContent = "Lỗi: " + e.message
+    return "error"
+  }finally{
+    var k = ctrls.indexOf(c); if (k > -1) ctrls.splice(k, 1)
+    scrollDown()
+  }
+}
+function abortAll(){ for (var i = ctrls.length - 1; i >= 0; i--){ ctrls[i].abort() } }
+
+// ---------- chon nguoi nhan ----------
+var ALIAS = {gemini: "gemini", groq: "groq", llama: "groq"}
+function targets(text){
+  var found = [], m
+  var re = /@(all|gemini|groq|llama)\b/g
+  text = text.toLowerCase()
+  while ((m = re.exec(text)) != null){
+    if (m[1] == "all") return IDS
+    var t = ALIAS[m[1]]
+    if (found.indexOf(t) == -1) found.push(t)
+  }
+  return found.length ? found : IDS
+}
+function take(){
+  var text = $("box").value.trim()
+  if (!text && !anhCho.length) return null
+  var u = {text: text, imgs: anhCho.slice()}
+  $("box").value = ""; $("box").style.height = ""; anhCho = []; renderThumbs()
+  return u
+}
+
+// ---------- che do GUI (1 luot) ----------
+async function sendOne(){
+  var u = take(); if (!u) return
+  mode = "round"; ui(); addUser(u)
+  var list = targets(u.text), ps = []
+  for (var i = 0; i < list.length; i++){ ps.push(turn(list[i], "reply")) }
+  await Promise.all(ps)
+  mode = null; ui(); $("box").focus()
+}
+
+// ---------- che do THAO LUAN ----------
+function nextSpeaker(){
+  var last = null
+  for (var i = HIST.length - 1; i >= 0; i--){ if (HIST[i].who != "you"){ last = HIST[i]; break } }
+  return last ? IDS[(IDS.indexOf(last.who) + 1) % IDS.length] : IDS[0]
+}
+async function discuss(first){
+  mode = "discuss"; ui()
+  if (first) addUser(first)
+  var max = parseInt($("maxturns").value, 10), n = 0
+  while (mode == "discuss"){
+    if (chen){                          // ban chen ngang: doc y kien, tra loi, roi thao luan tiep
+      var u = chen; chen = null; addUser(u); n = 0
+      var tg = targets(u.text)
+      for (var i = 0; i < tg.length; i++){
+        if (chen || mode != "discuss") break
+        if (await turn(tg[i], "chen") == "error"){ mode = null; break }
+      }
+      continue
+    }
+    if (n >= max){ note("Đã tự thảo luận " + max + " lượt. Bấm \"Thảo luận\" để tiếp tục."); break }
+    var r = await turn(nextSpeaker(), "discuss")
+    if (r == "error") break
+    if (r == "ok") n++
+  }
+  mode = null; ui(); $("box").focus()
+}
+
+// ---------- nut bam ----------
+function clickGui(){
+  if (mode == "discuss"){ var u = take(); if (u){ chen = u; abortAll() } return }
+  if (mode == null) sendOne()
+}
+function clickThaoLuan(){
+  if (mode !== null) return
+  var u = take()
+  if (!u && !HIST.length){ note("Hãy nhập chủ đề cần thảo luận trước."); return }
+  discuss(u)
+}
+function clickDung(){ mode = null; chen = null; abortAll(); ui() }
+function themTag(t){ var b = $("box"); b.value = t + " " + b.value; b.focus() }
+
+$("go").onclick = clickGui
+$("dis").onclick = clickThaoLuan
+$("stop").onclick = clickDung
+$("box").onkeydown = function(e){
+  if (e.keyCode == 13 && !e.shiftKey){ e.preventDefault(); $("go").click() }
+}
+$("box").oninput = function(){
+  this.style.height = "auto"; this.style.height = Math.min(this.scrollHeight, 160) + "px"
+}
+
+// ---------- dan anh tu clipboard ----------
+function toJpeg(file){
+  return new Promise(function(res){
+    var url = URL.createObjectURL(file), im = new Image()
+    im.onload = function(){
+      var s = Math.min(1, 1024 / Math.max(im.width, im.height))
+      var c = document.createElement("canvas")
+      c.width = Math.round(im.width * s); c.height = Math.round(im.height * s)
+      var x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height)
+      x.drawImage(im, 0, 0, c.width, c.height)
+      URL.revokeObjectURL(url); res(c.toDataURL("image/jpeg", .85))
+    }
+    im.onerror = function(){ URL.revokeObjectURL(url); res(null) }
+    im.src = url
+  })
+}
+function renderThumbs(){
+  var box = $("thumbs"); box.innerHTML = ""
+  for (var i = 0; i < anhCho.length; i++){
+    var d = document.createElement("div"); d.className = "th"
+    var im = document.createElement("img"); im.src = anhCho[i]; im.alt = "Ảnh đã dán"
+    var x = document.createElement("button"); x.textContent = "×"; x.setAttribute("aria-label", "Bỏ ảnh")
+    x.onclick = (function(k){ return function(){ anhCho.splice(k, 1); renderThumbs() } })(i)
+    d.appendChild(im); d.appendChild(x); box.appendChild(d)
+  }
+}
+$("box").onpaste = async function(e){
+  var items = (e.clipboardData && e.clipboardData.items) || []
+  var files = []
+  for (var i = 0; i < items.length; i++){
+    if (items[i].kind == "file" && items[i].type.indexOf("image/") == 0) files.push(items[i].getAsFile())
+  }
+  if (!files.length) return
+  if (!e.clipboardData.getData("text/plain")) e.preventDefault()
+  for (var i = 0; i < files.length; i++){
+    if (anhCho.length >= 4) break
+    var u = await toJpeg(files[i]); if (u) anhCho.push(u)
+  }
+  renderThumbs()
+}
+</script>
+</BODY>
+</HTML>
