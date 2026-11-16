@@ -10,14 +10,14 @@
      Đổi màu ở đây là đổi cả giao diện luôn nha, phép thuật đó ✨
      ========================================================== */
   :root {
-     --bg: #e9edf1;        
-    --panel: #fff;        
-    --ink: #18212b;      
-    --mute: #6a7683;      
-    --line: #d5dce3;     
-    --you: #18212b;       
-    --gemini: #1a6fd8;   
-    --groq: #d2500f;      
+    --bg: #e9edf1;        /* nền toàn trang (màu của sự bình yên) */
+    --panel: #fff;        /* nền các khung (header, bong bóng chat, ô nhập) */
+    --ink: #18212b;       /* màu chữ chính */
+    --mute: #6a7683;      /* chữ phụ, mờ mờ như sáng thứ Hai */
+    --line: #d5dce3;      /* viền mảnh */
+    --you: #18212b;       /* màu của bạn (bạn là nhân vật chính mà) */
+    --gemini: #1a6fd8;    /* màu Gemini (xanh dương) */
+    --groq: #d2500f;      /* màu Groq (cam như cam vắt) */
     --shadow: 0 1px 2px rgba(24, 33, 43, .06), 0 4px 12px rgba(24, 33, 43, .05);
   }
 
@@ -226,24 +226,26 @@
   </div>
 </footer>
 
+<!-- 🔑 config.js giu key + model, nam canh file nay, KHONG len GitHub nha (co trong .gitignore) -->
+<script src="config.js"></script>
 <script language="javascript">
 // ---------- code chat ai v0.4b ----------
 // (code nay chay duoc la nho may man + 3 ly ca phe, dung dung vao nha 🙏)
 // TODO: dep code lai sau (chua co thoi gian) <- cau nay viet tu 2014 roi, van chua dep :v
 
-
-
-var CONFIG = {
-  gemini: {
-    key: "AQ.Ab8RN6LNlI488EGcxtBcmEcoF-3V9Iynj9xhyEynE21xXr8r6A",          // lay o aistudio.google.com
-    model: "gemini-3.5-flash-lite"                // model chu + xem anh luon
-  },
-  groq: {
-    key: "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",            // lay o console.groq.com
-    model: "openai/gpt-oss-120b",           // model chu, nhanh nhu chop 🏃‍♂️💨
-    visionModel: "qwen/qwen3.8-27b"          // model xem anh (qwen3.6 bay mau roi, RIP 🕯️)
+// =====================================================
+//  🔑 KEY & MODEL KHONG NAM O DAY NUA NHA!
+//  chung o file config.js (file rieng, KHONG len GitHub)
+//  chua co thi copy config.example.js thanh config.js roi dan key vao ⭐
+// =====================================================
+// neu quen tao config.js thi dung bo khung rong nay de trang khong bi sap (╯°□°)╯
+if (typeof CONFIG == "undefined") {
+  var CONFIG = {
+    gemini: {key: "", model: "gemini-2.5-flash"},
+    groq:   {key: "", model: "llama-3.1-8b-instant", visionModel: "qwen/qwen3.8-27b"}
   }
-};
+  var THIEU_CONFIG = true
+}
 
 var DEBUG = false      // bat len de xem log, dung bat spam lam
 var ver = "0.4b"
@@ -283,7 +285,7 @@ function get_key(id){ return store.get("key-"+id); }    // ban cu, ko ai goi
 
 function getKey(id){                                     // ban moi: doc key tu CONFIG
   var k = CONFIG[id].key
-  return (k.indexOf("DAN_KEY") == 0) ? "" : k            // chua thay key thi coi nhu rong
+  return (!k || k.indexOf("DAN_KEY") == 0) ? "" : k      // chua thay key thi coi nhu rong
 }
 function scrollDown(){ $("log").scrollTop = $("log").scrollHeight }
 
@@ -358,7 +360,7 @@ function buildParts(id){
 // ---------- goi API ----------
 async function ask(id, kind, signal){
   var key = getKey(id)
-  if (!key) throw new Error("Chưa dán API key của " + AIS[id].name + " vào phần CONFIG trong code (tìm chữ DAN_KEY nha 🔑)")
+  if (!key) throw new Error("Chưa có API key của " + AIS[id].name + ". Tạo file config.js (copy từ config.example.js) rồi dán key vào nha 🔑")
   var parts = buildParts(id), hasImg = false, sys = sysPrompt(id, kind)
   for (var i = 0; i < parts.length; i++){ if (parts[i].img) hasImg = true }
   var res, data
@@ -587,6 +589,7 @@ $("box").onpaste = async function(e){
   }
   renderThumbs()
 }
+if (typeof THIEU_CONFIG != "undefined") note("Chưa thấy file config.js 🥺 Copy config.example.js thành config.js rồi dán API key vào nha!")
 // het roi nha, cam on ban da doc toi day 🥹 (neu ban doc toi day thi ban la nguoi tot)
 </script>
 </BODY>
